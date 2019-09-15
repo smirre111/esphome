@@ -1,0 +1,73 @@
+
+
+substitutions:
+  device_name: rika
+  
+
+
+####
+
+esphome:
+  name: ${device_name}
+  platform: ESP32
+  board: nodemcu-32s
+
+####
+
+wifi:
+  ssid: "FRITZ!Box 7590 TD"
+  password: "23461468396986328867"
+  domain: .fritz.box
+
+
+# Enable Home Assistant API
+api:
+
+
+ota:
+
+
+web_server:
+  port: 80
+
+
+uart:
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 38400
+
+
+
+logger:
+  # hardware_uart: UART1
+  # level: DEBUG
+  #esp8266_store_log_strings_in_flash: false
+
+
+
+climate:
+  - platform: rika_stove
+    name: Rika Como
+    supports_heat: True
+    supports_cool: True
+    pin_code: "1211"
+    phone_number: "+436508012415"
+    visual:
+      min_temperature: 17
+      max_temperature: 30
+      temperature_step: 1.0
+
+
+# Example configuration entry
+sensor:
+  - platform: dht
+    pin: GPIO5
+    model: DHT11
+    temperature:
+      name: "Rika Temperature"
+      accuracy_decimals: 1
+    humidity:
+      name: "Rika Humidity"
+      accuracy_decimals: 1
+    update_interval: 10s
+

@@ -18,6 +18,13 @@ wifi:
   ssid: "FRITZ!Box 7590 TD"
   password: "23461468396986328867"
   domain: .fritz.box
+  power_save_mode: none
+  # Optional manual IP
+  manual_ip:
+    static_ip: 192.168.178.33
+    gateway: 192.168.178.1
+    subnet: 255.255.255.0 
+    dns1: 192.168.178.1
 
 
 # Enable Home Assistant API
@@ -62,12 +69,15 @@ climate:
 sensor:
   - platform: dht
     pin: GPIO5
-    model: DHT11
+    model: DHT22
     temperature:
       name: "Rika Temperature"
       accuracy_decimals: 1
+      filters: 
+        - offset: -1.5
     humidity:
       name: "Rika Humidity"
       accuracy_decimals: 1
-    update_interval: 10s
+    update_interval: 60s
+     
 

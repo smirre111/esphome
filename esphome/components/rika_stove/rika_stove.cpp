@@ -93,8 +93,8 @@ void RikaStove::transmit_state_(bool mode_change, bool temp_change)
   std::string mode_string;
   std::string mode_short;
 
-  ESP_LOGD(TAG, "Vmin '%f:", this->traits().get_visual_min_temperature());
-  ESP_LOGD(TAG, "Vmax '%f:", this->traits().get_visual_max_temperature());
+  ESP_LOGV(TAG, "Vmin '%f:", this->traits().get_visual_min_temperature());
+  ESP_LOGV(TAG, "Vmax '%f:", this->traits().get_visual_max_temperature());
 
   switch (this->mode)
   {
@@ -160,21 +160,22 @@ void RikaStove::transmit_state_(bool mode_change, bool temp_change)
 
   ESP_LOGD(TAG, "Sending message: %s", api_command.c_str());
 
-  std::string temp_message;
-  if (api_command == "OFF")
-  {
-    temp_message = api_command;
-  }
-  else if (api_command == "AUTO")
-  {
-    temp_message = "TEL";
-  }
-  else
-  {
-    temp_message = "?";
-  }
+  // std::string temp_message;
+  // if (api_command == "OFF")
+  // {
+  //   temp_message = api_command;
+  // }
+  // else if (api_command == "AUTO")
+  // {
+  //   temp_message = "TEL";
+  // }
+  // else
+  // {
+  //   temp_message = "?";
+  // }
 
-  this->command_queue_.push(temp_message);
+  // this->command_queue_.push(temp_message);
+  this->command_queue_.push(api_command);
 }
 
 void RikaStove::loop()
@@ -188,7 +189,7 @@ void RikaStove::loop()
     if (this->read_pos_ == RIKASTOVE_READ_BUFFER_LENGTH)
       this->read_pos_ = 0;
 
-    //ESP_LOGD(TAG, "Buffer pos: %u %d", this->read_pos_, byte); // NOLINT
+    
 
     if (byte >= 0x7F)
       byte = '?'; // need to be valid utf8 string for log functions.
@@ -196,7 +197,7 @@ void RikaStove::loop()
 
     if (this->read_buffer_[this->read_pos_] == ASCII_CR)
     {
-      ESP_LOGD(TAG, "Buffer : %s", this->read_buffer_);
+      ESP_LOGVV(TAG, "Buffer : %s", this->read_buffer_);
       this->read_buffer_[this->read_pos_] = 0;
       this->read_pos_ = 0;
       this->parse_cmd_(std::string(this->read_buffer_));
@@ -210,7 +211,7 @@ void RikaStove::loop()
 
 void RikaStove::update()
 {
-  ESP_LOGV(TAG, "In update");
+  ESP_LOGVV(TAG, "In update");
   // In case we want add periodic reading of the state / temperature using a polling component
   // this function will be called periodically by the core
 }
@@ -218,7 +219,7 @@ void RikaStove::update()
 void RikaStove::parse_cmd_(const std::string &at_cmd_buffer)
 {
 
-  ESP_LOGD(TAG, "Received at_cmd_buffer: %s", at_cmd_buffer.c_str());
+  ESP_LOGV(TAG, "Received at_cmd_buffer: %s", at_cmd_buffer.c_str());
   if (at_cmd_buffer.empty())
     return;
 
@@ -229,8 +230,8 @@ void RikaStove::parse_cmd_(const std::string &at_cmd_buffer)
     this->send_retour_();
     this->write_str(">");
     //Affichage
-    ESP_LOGD(TAG, "-> Send SMS");
-    ESP_LOGD(TAG, "-> Message:");
+    ESP_LOGV(TAG, "-> Send SMS");
+    ESP_LOGV(TAG, "-> Message:");
 
     // Get the content of the SMS
     // Allow the stove to answer
@@ -254,8 +255,8 @@ void RikaStove::parse_cmd_(const std::string &at_cmd_buffer)
     //TODO: Parse the reply
     this->parse_reply_(status_message_);
 
-    ESP_LOGD(TAG, "-> Status message: %s", status_message_.c_str());
-    ESP_LOGD(TAG, "-> +CMGS : 01");
+    ESP_LOGV(TAG, "-> Status message: %s", status_message_.c_str());
+    ESP_LOGV(TAG, "-> +CMGS : 01");
 
     //Send the response
     this->send_retour_();
@@ -266,10 +267,10 @@ void RikaStove::parse_cmd_(const std::string &at_cmd_buffer)
   else if (at_cmd_buffer.rfind("AT+CMGR", 0) == 0)
   { // The stove wants to read an SMS
 
-    ESP_LOGD(TAG, "-> Received SMS");
+    ESP_LOGV(TAG, "-> Received SMS");
     if (this->command_queue_.empty() == true)
     {
-      ESP_LOGD(TAG, "-> %s", "NONE");
+      ESP_LOGV(TAG, "-> %s", "NONE");
     }
 
     if (this->command_queue_.empty() == false)
@@ -291,7 +292,7 @@ void RikaStove::parse_cmd_(const std::string &at_cmd_buffer)
       this->send_retour_();
 
       this->write_str(reply.c_str());
-      ESP_LOGD(TAG, "-> Message: %s", reply.c_str());
+      ESP_LOGV(TAG, "-> Message: %s", reply.c_str());
 
       this->send_retour_();
       reply = pin_code_;
@@ -299,7 +300,7 @@ void RikaStove::parse_cmd_(const std::string &at_cmd_buffer)
       reply += current_command;
 
       this->write_str(reply.c_str());
-      ESP_LOGD(TAG, "-> Message: %s", reply.c_str());
+      ESP_LOGV(TAG, "-> Message: %s", reply.c_str());
 
       this->send_retour_();
       this->send_retour_();
@@ -316,7 +317,7 @@ void RikaStove::parse_cmd_(const std::string &at_cmd_buffer)
   else if (at_cmd_buffer.rfind("AT+CMGD", 0) == 0)
   { // The stove asks to delete the current SMS
 
-    ESP_LOGD(TAG, "-> Deleted message: %s", command_queue_.front().c_str());
+    ESP_LOGV(TAG, "-> Deleted message: %s", command_queue_.front().c_str());
     this->command_queue_.pop();
 
     this->send_ok_();
@@ -413,13 +414,13 @@ void RikaStove::send_retour_()
 void RikaStove::send_ok_()
 { // on envoie OK au poele
   this->write_str("OK");
-  ESP_LOGD(TAG, "-> Response: OK");
+  ESP_LOGV(TAG, "-> Response: OK");
   this->send_retour_();
 }
 void RikaStove::send_error_()
 {
   this->write_str("ERROR");
-  ESP_LOGD(TAG, "-> Response: ERROR");
+  ESP_LOGV(TAG, "-> Response: ERROR");
   this->send_retour_();
 }
 

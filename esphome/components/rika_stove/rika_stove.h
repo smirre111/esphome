@@ -7,12 +7,23 @@
 #include <sstream>
 #include <queue>
 
-#define RIKASTOVE_READ_BUFFER_LENGTH 255
+
+
 
 namespace esphome
 {
 namespace rikastove
 {
+
+#define RIKASTOVE_READ_BUFFER_LENGTH 255
+
+enum State {
+  STATE_IDLE = 0,
+  STATE_SEND_SMS
+};
+
+
+
 
 class RikaStove : public climate::Climate, public uart::UARTDevice, public Component
 {
@@ -41,14 +52,16 @@ protected:
   /// Transmit via IR the state of this climate controller.
   void transmit_state_(bool mode_change, bool temp_change);
 
-  void parse_cmd_(const std::string &);
+  void parse_buffer_(const std::string &);
   void parse_reply_(const std::string &);
 
   void send_retour_();
   void send_ok_();
   void send_error_();
 
-  std::string status_message_{""};
+  State state_{STATE_IDLE};
+
+  //std::string status_message_{""};
   std::queue<std::string> command_queue_;
 
   char read_buffer_[RIKASTOVE_READ_BUFFER_LENGTH];
@@ -63,6 +76,13 @@ protected:
   std::string pin_code_ = "1211";
   const std::string date_ = {"70/01/01"};
   const std::string time_ = {"01:00:00"};
+
+  const char ASCII_CR  = 0x0D;
+  const char ASCII_LF  = 0x0A;
+  const char ASCII_ESC = 0x1A;
+
+  char term_char_ = {ASCII_CR}; 
+
 };
 
 } // namespace rikastove

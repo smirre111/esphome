@@ -8,15 +8,14 @@ namespace rikastove
 
 static const char *TAG = "rikastove.climate";
 
-const char ASCII_CR = 0x0D;
-const char ASCII_LF = 0x0A;
 
-const uint32_t COOLIX_OFF = 0xB27BE0;
 
-const uint8_t COOLIX_COOL = 0b00;
-const uint8_t COOLIX_DRY = 0b01;
-const uint8_t COOLIX_AUTO = 0b10;
-const uint8_t COOLIX_HEAT = 0b11;
+// const uint32_t COOLIX_OFF = 0xB27BE0;
+
+// const uint8_t COOLIX_COOL = 0b00;
+// const uint8_t COOLIX_DRY = 0b01;
+// const uint8_t COOLIX_AUTO = 0b10;
+// const uint8_t COOLIX_HEAT = 0b11;
 
 const float POWER_MIN = 30.0;
 const float POWER_MAX = 100.0;
@@ -93,8 +92,8 @@ void RikaStove::transmit_state_(bool mode_change, bool temp_change)
   std::string mode_string;
   std::string mode_short;
 
-  ESP_LOGV(TAG, "Vmin '%f:", this->traits().get_visual_min_temperature());
-  ESP_LOGV(TAG, "Vmax '%f:", this->traits().get_visual_max_temperature());
+  ESP_LOGD(TAG, "Vmin '%f:", this->traits().get_visual_min_temperature());
+  ESP_LOGD(TAG, "Vmax '%f:", this->traits().get_visual_max_temperature());
 
   switch (this->mode)
   {
@@ -186,21 +185,24 @@ void RikaStove::loop()
     uint8_t byte;
     this->read_byte(&byte);
 
-    if (this->read_pos_ == RIKASTOVE_READ_BUFFER_LENGTH)
+    if (this->read_pos_ == RIKASTOVE_READ_BUFFER_LENGTH) {
       this->read_pos_ = 0;
-
-    
-
-    if (byte >= 0x7F)
+    }
+   
+    if (byte >= 0x7F) {
       byte = '?'; // need to be valid utf8 string for log functions.
+    }
+
     this->read_buffer_[this->read_pos_] = byte;
 
-    if (this->read_buffer_[this->read_pos_] == ASCII_CR)
+    if (this->read_buffer_[this->read_pos_] == this->term_char_)
     {
-      ESP_LOGVV(TAG, "Buffer : %s", this->read_buffer_);
+      
       this->read_buffer_[this->read_pos_] = 0;
       this->read_pos_ = 0;
-      this->parse_cmd_(std::string(this->read_buffer_));
+      ESP_LOGD(TAG, "Buffer : %s", this->read_buffer_);
+      this->parse_buffer_(std::string(this->read_buffer_));
+      
     }
     else
     {
@@ -209,135 +211,158 @@ void RikaStove::loop()
   }
 }
 
+
+
+
+
+
 void RikaStove::update()
 {
-  ESP_LOGVV(TAG, "In update");
+  ESP_LOGD(TAG, "In update");
   // In case we want add periodic reading of the state / temperature using a polling component
   // this function will be called periodically by the core
 }
 
-void RikaStove::parse_cmd_(const std::string &at_cmd_buffer)
+void RikaStove::parse_buffer_(const std::string &comm_buffer)
 {
 
-  ESP_LOGV(TAG, "Received at_cmd_buffer: %s", at_cmd_buffer.c_str());
-  if (at_cmd_buffer.empty())
+  ESP_LOGD(TAG, "Received comm_buffer: %s", comm_buffer.c_str());
+  if (comm_buffer.empty()) {
+    this->state_ = STATE_IDLE;
+    this->term_char_ = ASCII_CR;
     return;
+  } 
 
-  // The stove sends an SMS
-  if (at_cmd_buffer.rfind("AT+CMGS", 0) == 0)
-  {
-    // on donne l'invite >
-    this->send_retour_();
-    this->write_str(">");
-    //Affichage
-    ESP_LOGV(TAG, "-> Send SMS");
-    ESP_LOGV(TAG, "-> Message:");
+    
 
-    // Get the content of the SMS
-    // Allow the stove to answer
-    delay(2000);
-    status_message_ = "";
-    byte rcv_byte = 0;
-    char rcv_char = 0;
-    while (rcv_char != char(26))
-    {
-      if (this->available())
+  switch (this->state_) {
+
+    case STATE_IDLE: {
+      //DELETE_MESSAGE
+      if (comm_buffer.rfind("AT+CMGD", 0) == 0)
+      { // The stove asks to delete the current SMS
+
+        ESP_LOGD(TAG, "-> Deleted requested");
+        if (!this->command_queue_.empty()) {
+          ESP_LOGD(TAG, "-> Deleted message: %s", command_queue_.front().c_str());
+          this->command_queue_.pop();
+        } 
+        else {
+          ESP_LOGD(TAG, "-> No message to delete");
+        }
+
+        this->send_ok_();
+      }
+      //ECHO OFF
+      else if (comm_buffer.rfind("ATE0", 0) == 0)
       {
-        this->read_byte(&rcv_byte);
-        rcv_char = (char)rcv_byte;
-        if (rcv_char != char(26))
-        { // ctrl+z (ASCII 26) pour finir le SMS
-          status_message_ += rcv_char;
+        this->send_ok_();
+      }
+      //STATE NEW_MESSAGE
+      else if (comm_buffer.rfind("AT+CNMI", 0) == 0)
+      {
+        this->send_ok_();
+      }
+      //STATE MESSAGE FORMAT
+      else if (comm_buffer.rfind("AT+CMGF", 0) == 0)
+      {
+        this->send_ok_();
+      }
+      // STATE SEND SMS
+      else if (comm_buffer.rfind("AT+CMGS", 0) == 0)
+      {
+        // on donne l'invite >
+        this->send_retour_();
+        this->write_str(">");
+        //Affichage
+        ESP_LOGD(TAG, "-> Send SMS");
+        ESP_LOGD(TAG, "-> Message:");
+        //Termination charactor for message is switched to ESC
+        this->term_char_ = ASCII_ESC;
+        this->state_ = STATE_SEND_SMS;
+      }
+      //STATE SMS RECEIVED
+      else if (comm_buffer.rfind("AT+CMGR", 0) == 0)
+      { // The stove wants to read an SMS
+
+        ESP_LOGD(TAG, "-> Received SMS");
+        if (this->command_queue_.empty() == true)
+        {
+          ESP_LOGD(TAG, "-> %s", "NONE");
+        }
+
+        if (this->command_queue_.empty() == false)
+        //else if (current_message_ != "NONE")
+        { // There is a command to send
+
+          std::string current_command;
+          current_command = this->command_queue_.front();
+
+          std::string reply = "+CMGR: \"REC READ\",\"";
+          reply += phone_number_;
+          reply += "\",,\"";
+          reply += date_;
+          reply += ",";
+          reply += time_;
+          reply += "+08\"";
+
+          // Message for the stove
+          this->send_retour_();
+
+          this->write_str(reply.c_str());
+          ESP_LOGD(TAG, "-> Message: %s", reply.c_str());
+
+          this->send_retour_();
+          reply = pin_code_;
+          reply += " ";
+          reply += current_command;
+
+          this->write_str(reply.c_str());
+          ESP_LOGD(TAG, "-> Message: %s", reply.c_str());
+
+          this->send_retour_();
+          this->send_retour_();
+          this->send_ok_();
+          
+          query_status_ = true;
+        }
+        else
+        { // There is no comand to send to the stove
+          this->send_retour_();
+          this->send_ok_();
         }
       }
-    }
+      else if ((comm_buffer != "") && (comm_buffer != "\n") && (comm_buffer != "\x1A") && (comm_buffer != "\x0D"))
+      {
+        this->send_error_();
+      }
+      break;
+    } 
+    
+    case STATE_SEND_SMS: {
+      
+      ESP_LOGD(TAG, "-> Status message: %s", comm_buffer.c_str());
+      ESP_LOGD(TAG, "-> +CMGS : 01");
 
-    //TODO: Parse the reply
-    this->parse_reply_(status_message_);
-
-    ESP_LOGV(TAG, "-> Status message: %s", status_message_.c_str());
-    ESP_LOGV(TAG, "-> +CMGS : 01");
-
-    //Send the response
-    this->send_retour_();
-    this->write_str("+CMGS : 01");
-    this->send_retour_();
-    this->send_ok_();
-  }
-  else if (at_cmd_buffer.rfind("AT+CMGR", 0) == 0)
-  { // The stove wants to read an SMS
-
-    ESP_LOGV(TAG, "-> Received SMS");
-    if (this->command_queue_.empty() == true)
-    {
-      ESP_LOGV(TAG, "-> %s", "NONE");
-    }
-
-    if (this->command_queue_.empty() == false)
-    //else if (current_message_ != "NONE")
-    { // There is a command to send
-
-      std::string current_command;
-      current_command = this->command_queue_.front();
-
-      std::string reply = "+CMGR: \"REC READ\",\"";
-      reply += phone_number_;
-      reply += "\",,\"";
-      reply += date_;
-      reply += ",";
-      reply += time_;
-      reply += "+08\"";
-
-      // Message for the stove
+      
+      this->parse_reply_(comm_buffer);
+      //Send the response
       this->send_retour_();
-
-      this->write_str(reply.c_str());
-      ESP_LOGV(TAG, "-> Message: %s", reply.c_str());
-
-      this->send_retour_();
-      reply = pin_code_;
-      reply += " ";
-      reply += current_command;
-
-      this->write_str(reply.c_str());
-      ESP_LOGV(TAG, "-> Message: %s", reply.c_str());
-
-      this->send_retour_();
+      this->write_str("+CMGS : 01");
       this->send_retour_();
       this->send_ok_();
-      delay(2000);
-      query_status_ = true;
-    }
-    else
-    { // There is no comand to send to the stove
-      this->send_retour_();
-      this->send_ok_();
-    }
-  }
-  else if (at_cmd_buffer.rfind("AT+CMGD", 0) == 0)
-  { // The stove asks to delete the current SMS
 
-    ESP_LOGV(TAG, "-> Deleted message: %s", command_queue_.front().c_str());
-    this->command_queue_.pop();
+      this->term_char_ = ASCII_CR;
+      this->state_ = STATE_IDLE;
+      break;
+    }
+    default: {
+      this->term_char_ = ASCII_CR;
+      this->state_ = STATE_IDLE;
+      break;
+    }
+  }
 
-    this->send_ok_();
-  }
-  else if (at_cmd_buffer.rfind("ATE0", 0) == 0)
-  {
-    this->send_ok_();
-  }
-  else if (at_cmd_buffer.rfind("AT+CNMI", 0) == 0)
-  {
-    this->send_ok_();
-  }
-  else if (at_cmd_buffer.rfind("AT+CMGF", 0) == 0)
-  {
-    this->send_ok_();
-  }
-  else if ((at_cmd_buffer != "") && (at_cmd_buffer != "\n") && (at_cmd_buffer != "\x1A") && (at_cmd_buffer != "\x0D"))
-  {
-    this->send_error_();
-  }
 }
 
 void RikaStove::parse_reply_(const std::string &stove_reply)
@@ -385,11 +410,11 @@ void RikaStove::parse_reply_(const std::string &stove_reply)
         this->publish_state();
       }
 
-      ESP_LOGV(TAG, "Stove reply: OK: %s", stove_reply.c_str());
+      ESP_LOGD(TAG, "Stove reply: OK: %s", stove_reply.c_str());
     }
     else if (str_vec[1] == "OFF")
     {
-      ESP_LOGV(TAG, "Stove reply: OK: %s", stove_reply.c_str());
+      ESP_LOGD(TAG, "Stove reply: OK: %s", stove_reply.c_str());
     }
     else
     {
@@ -402,27 +427,33 @@ void RikaStove::parse_reply_(const std::string &stove_reply)
   }
   else
   {
-    ESP_LOGE(TAG, "Stove reply: UNKNOWN: %s", stove_reply.c_str());
+    ESP_LOGI(TAG, "Stove reply: UNKNOWN: %s", stove_reply.c_str());
   }
 }
+
 
 void RikaStove::send_retour_()
 { // on envoie CR + LF au poele
   this->write_byte(char(13));
   this->write_byte(char(10));
 }
+
+
 void RikaStove::send_ok_()
 { // on envoie OK au poele
   this->write_str("OK");
-  ESP_LOGV(TAG, "-> Response: OK");
+  ESP_LOGD(TAG, "-> Response: OK");
   this->send_retour_();
 }
+
+
 void RikaStove::send_error_()
 {
   this->write_str("ERROR");
-  ESP_LOGV(TAG, "-> Response: ERROR");
+  ESP_LOGD(TAG, "-> Response: ERROR");
   this->send_retour_();
 }
+
 
 } // namespace rikastove
 } // namespace esphome

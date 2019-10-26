@@ -46,9 +46,8 @@ uart:
 
 
 logger:
+  level: DEBUG
   # hardware_uart: UART1
-  # level: DEBUG
-  #esp8266_store_log_strings_in_flash: false
 
 
 
